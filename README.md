@@ -86,7 +86,13 @@ Returns cleaned page content plus metadata: title, description, authors, publish
 
 ## Updating
 
-Re-run the install one-liner to get the latest version; it replaces the installed binary in place.
+```sh
+pplx update
+```
+
+`pplx update` (v0.2.2+) downloads the latest release for your platform, verifies its SHA-256 checksum against the release manifest, and atomically replaces the installed binary. `pplx update --check` reports whether a newer release exists without installing anything. Neither needs an API key.
+
+Re-running the install one-liner also works and replaces the binary in place.
 
 ## Environment variables
 
@@ -95,7 +101,7 @@ Re-run the install one-liner to get the latest version; it replaces the installe
 | `PERPLEXITY_API_KEY`    | API key; takes precedence over the key stored by `pplx auth login` |
 | `PPLX_OUTPUT_DIR`       | Default directory for saved search and fetch results               |
 | `PPLX_INSTALL_PATH`     | `install.sh`: install target (default: `~/.local/bin/pplx`)        |
-| `PPLX_INSTALL_BASE_URL` | `install.sh`: release repository base URL                          |
+| `PPLX_INSTALL_BASE_URL` | `install.sh` and `pplx update`: release repository base URL        |
 
 ## Versioning
 
