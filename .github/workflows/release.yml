@@ -1,0 +1,204 @@
+name: Release
+
+on:
+  release:
+    types:
+      - created
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (stage and verify only, no upload)"
+        type: boolean
+        required: false
+        default: true
+      tag_name:
+        description: "Release tag to stage and publish (set by the Cut Release handoff)"
+        type: string
+        required: false
+        default: ""
+      sha:
+        description: "Commit SHA to stage from (defaults to the dispatched ref)"
+        type: string
+        required: false
+        default: ""
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.release.tag_name || inputs.tag_name || github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    name: Stage release assets
+    runs-on: ubuntu-latest
+
+    steps:
+      # A draft release has no tag ref yet (GitHub creates the tag only at
+      # publish), so check out the release commit, never the tag.
+      - name: Checkout release commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.release.target_commitish || inputs.sha || github.ref }}
+
+      - name: Verify dist contents
+        run: |
+          set -euo pipefail
+
+          expected="$(printf '%s\n' \
+            metadata.json \
+            pplx-aarch64-apple-darwin.bin \
+            pplx-aarch64-linux-gnu.bin \
+            pplx-x86_64-linux-gnu.bin)"
+          actual="$(ls dist | LC_ALL=C sort)"
+          if [ "$actual" != "$expected" ]; then
+            echo "dist/ must contain exactly the three binaries and metadata.json; found:" >&2
+            ls -l dist >&2
+            exit 1
+          fi
+
+      - name: Generate manifest.json and SHA256SUMS
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          version="$(jq -r '.version // empty' dist/metadata.json)"
+          commit="$(jq -r '.source_commit // empty' dist/metadata.json)"
+          [ -n "$version" ] || { echo "dist/metadata.json is missing version" >&2; exit 1; }
+          [ -n "$commit" ] || { echo "dist/metadata.json is missing source_commit" >&2; exit 1; }
+
+          mkdir -p staging
+          cp dist/pplx-*.bin staging/
+
+          target_json() {
+            jq -n --arg asset "$1" \
+              --arg sha256 "$(sha256sum "dist/$1" | awk '{print $1}')" \
+              --argjson size "$(stat -c %s "dist/$1")" \
+              '{asset: $asset, sha256: $sha256, size: $size}'
+          }
+
+          # install.sh sed-parses this file; keep jq's default pretty-printing
+          # (one key per line).
+          jq -n \
+            --arg version "$version" \
+            --arg tag "$RELEASE_TAG" \
+            --arg commit "$commit" \
+            --argjson darwin_arm64 "$(target_json pplx-aarch64-apple-darwin.bin)" \
+            --argjson linux_x86_64 "$(target_json pplx-x86_64-linux-gnu.bin)" \
+            --argjson linux_arm64 "$(target_json pplx-aarch64-linux-gnu.bin)" \
+            '{version: $version, tag: $tag, commit: $commit, targets: {
+                "aarch64-apple-darwin": $darwin_arm64,
+                "x86_64-linux-gnu": $linux_x86_64,
+                "aarch64-linux-gnu": $linux_arm64}}' \
+            > staging/manifest.json
+
+          (cd staging && sha256sum pplx-*.bin manifest.json > SHA256SUMS)
+
+          cat staging/manifest.json
+          cat staging/SHA256SUMS
+
+      - name: Upload staged assets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-assets
+          path: staging/
+          retention-days: 7
+
+  smoke:
+    name: Smoke test ${{ matrix.name }}
+    needs: stage
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS ARM64
+            runner: macos-15
+            binary: pplx-aarch64-apple-darwin.bin
+          - name: Linux x86_64
+            runner: ubuntu-latest
+            binary: pplx-x86_64-linux-gnu.bin
+          - name: Linux ARM64
+            runner: ubuntu-24.04-arm
+            binary: pplx-aarch64-linux-gnu.bin
+
+    steps:
+      - name: Download staged assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-assets
+          path: staging
+
+      - name: Run binary and check version
+        run: |
+          set -euo pipefail
+
+          binary="staging/${{ matrix.binary }}"
+          chmod +x "$binary"
+
+          expected="$(jq -r '.version' staging/manifest.json)"
+          output="$("$binary" --version)"
+          echo "$output"
+          case "$output" in
+            *"$expected"*) ;;
+            *)
+              echo "expected version $expected in --version output" >&2
+              exit 1
+              ;;
+          esac
+
+  publish:
+    name: Upload release assets
+    needs:
+      - stage
+      - smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.dry_run == false && (inputs.tag_name != '' || startsWith(github.ref, 'refs/tags/v'))) }}
+
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ github.event.release.target_commitish || inputs.sha || github.ref }}
+
+      - name: Download staged assets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-assets
+          path: staging
+
+      - name: Upload release assets and publish
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag_name || github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          gh release upload "$RELEASE_TAG" \
+            dist/pplx-aarch64-apple-darwin.bin \
+            dist/pplx-x86_64-linux-gnu.bin \
+            dist/pplx-aarch64-linux-gnu.bin \
+            staging/manifest.json \
+            staging/SHA256SUMS \
+            install.sh \
+            --clobber
+
+          # Publish only once every asset is in place. Pipelines for different
+          # tags run concurrently, so claim `latest` only when this tag
+          # version-sorts above every published vA.B.C — an older run finishing
+          # last must not steal releases/latest from under install.sh.
+          max_tag="$(gh api --paginate "repos/$GH_REPO/releases" \
+            | jq -r '.[] | select(.draft == false) | .tag_name' \
+            | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } | sort -V | tail -n 1)"
+          max_tag="${max_tag:-v0.0.0}"
+          top="$(printf '%s\n%s\n' "$RELEASE_TAG" "$max_tag" | sort -V | tail -n 1)"
+          latest_flag="--latest=false"
+          if [[ "$top" == "$RELEASE_TAG" && "$RELEASE_TAG" != "$max_tag" ]]; then
+            latest_flag="--latest"
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false "$latest_flag"
