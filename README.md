@@ -84,6 +84,16 @@ pplx content fetch https://example.com --no-cache
 
 Returns cleaned page content plus metadata: title, description, authors, published date, domain, and paywall/cache flags. `--html` adds the raw page source in a `raw_html` field, and `--no-cache` forces a live fetch instead of a cache lookup.
 
+## For coding agents
+
+An [Agent Skill](https://github.com/perplexityai/api-platform-developers) teaches coding agents to install and use `pplx` for web search and page fetch. Point any agent at it directly:
+
+```
+Read https://raw.githubusercontent.com/perplexityai/api-platform-developers/main/skills/pplx-cli/SKILL.md, install the skill, and use it for search.
+```
+
+Or install it as a Claude Code plugin: `/plugin marketplace add perplexityai/api-platform-developers`, then `/plugin install perplexity-platform@api-platform-developers`.
+
 ## Updating
 
 ```sh
