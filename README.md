@@ -1,6 +1,6 @@
 # pplx
 
-Perplexity's Search API in your terminal. `pplx` gives you grounded web search results and clean page content as JSON, built for both humans and coding agents.
+Perplexity's Search API in your terminal. `pplx` gives you grounded web search results and query-relevant page snippets as JSON, built for both humans and coding agents.
 
 ## Install
 
@@ -74,19 +74,28 @@ Output is `{ hits: [{ url, title, domain, snippet, ... }], total }`. Common flag
 | `--output-dir <DIR>`                                   | Also save the full result set to a JSON file  |
 | `--stdout-preview[=<CHARS>]`                           | Truncate long string fields in stdout         |
 
-### Content fetch
+### Content snippets
+
+Extracts the parts of pages that are relevant to a query, from up to 50 URLs in one call. Each extra URL adds another page to snippet, and elided regions inside a snippet are marked with `…`. Requires v0.2.3 or newer; `pplx update` upgrades in place.
 
 ```sh
-pplx content fetch https://example.com
-pplx content fetch https://example.com --html
-pplx content fetch https://example.com --no-cache
+pplx content snippets "rust async runtimes" https://tokio.rs https://docs.rs/smol --max-tokens 256 --max-tokens-per-page 128
 ```
 
-Returns cleaned page content plus metadata: title, description, authors, published date, domain, and paywall/cache flags. `--html` adds the raw page source in a `raw_html` field, and `--no-cache` forces a live fetch instead of a cache lookup.
+```json
+{"results":[
+  {"url":"https://tokio.rs","text":"Learn\nAPI Docs\nBlog\nBuild reliable network applications without compromising speed.\nTokio is an asynchronous runtime for the Rust programming language. …","tokens_count":82},
+  {"url":"https://docs.rs/smol","text":"div\n\n# Crate smol\nSource\nExpand description\n\nA small and fast async runtime. …","tokens_count":126}
+]}
+```
+
+`--max-tokens` caps total tokens across all snippets (1-16384, default: 4096); `--max-tokens-per-page` caps each page (1-4096, must be <= `--max-tokens`; default: `min(1024, max_tokens)`). A run can exit 0 with some pages failed, so check each result's `error` field before trusting its `text`. `--output-dir` saves the full response under `<dir>/snippets/`.
+
+`content fetch` is deprecated and will stop working; use `content snippets`.
 
 ## For coding agents
 
-An [Agent Skill](https://github.com/perplexityai/api-platform-developers) teaches coding agents to install and use `pplx` for web search and page fetch. Point any agent at it directly:
+An [Agent Skill](https://github.com/perplexityai/api-platform-developers) teaches coding agents to install and use `pplx` for web search and page snippets. Point any agent at it directly:
 
 ```
 Read https://raw.githubusercontent.com/perplexityai/api-platform-developers/main/skills/pplx-cli/SKILL.md, install the skill, and use it for search.
@@ -109,7 +118,7 @@ Re-running the install one-liner also works and replaces the binary in place.
 | Variable                | Purpose                                                            |
 | ----------------------- | ------------------------------------------------------------------ |
 | `PERPLEXITY_API_KEY`    | API key; takes precedence over the key stored by `pplx auth login` |
-| `PPLX_OUTPUT_DIR`       | Default directory for saved search and fetch results               |
+| `PPLX_OUTPUT_DIR`       | Default directory for saved search and snippets results (snippets are saved under `snippets/`) |
 | `PPLX_INSTALL_PATH`     | `install.sh`: install target (default: `~/.local/bin/pplx`)        |
 | `PPLX_INSTALL_BASE_URL` | `install.sh` and `pplx update`: release repository base URL        |
 
