@@ -59,6 +59,8 @@ pplx search web "query" "related query 1" "related query 2"
 pplx search web "model releases" --domains wikipedia.org,arxiv.org
 pplx search web "openai news" --recency-filter week
 pplx search web "openai news" --published-after-date 3/1/2026 --published-before-date 3/5/2026
+pplx search web "rust async runtimes" --max-tokens 8000 --max-tokens-per-page 4000
+pplx search web "rust documentation" --updated-after-date 3/1/2026
 ```
 
 Output is `{ hits: [{ url, title, domain, snippet, ... }], total }`. Common flags (see `pplx search web --help` for the full list):
@@ -70,9 +72,14 @@ Output is `{ hits: [{ url, title, domain, snippet, ... }], total }`. Common flag
 | `--domains` / `--excluded-domains`                     | Comma-separated domain filters                |
 | `--recency-filter <WINDOW>`                            | Relative window: hour, day, week, month, year |
 | `--published-after-date` / `--published-before-date`   | Publication-date bounds (MM/DD/YYYY)          |
-| `--search-context-size <SIZE>`                         | low, medium, or high                          |
+| `--updated-after-date` / `--updated-before-date`       | Last-updated bounds (MM/DD/YYYY)              |
+| `--max-tokens <TOKENS>`                                | Total search-result content token budget     |
+| `--max-tokens-per-page <TOKENS>`                       | Content token budget per result page         |
+| `--search-context-size <SIZE>`                         | low, medium, or high; omit with explicit token budgets |
 | `--output-dir <DIR>`                                   | Also save the full result set to a JSON file  |
 | `--stdout-preview[=<CHARS>]`                           | Truncate long string fields in stdout         |
+
+`--recency-filter` cannot be combined with publication-date bounds.
 
 ### Content snippets
 
